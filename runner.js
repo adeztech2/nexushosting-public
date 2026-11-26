@@ -348,7 +348,7 @@ app.post('/api/projects/:id/:action(start|stop|restart)', auth, async (req, res)
   const p = ownProject(req, res); if (!p) return;
   const a = req.params.action;
   if (a === 'stop') { p.desired = 'stopped'; runner.stop(p.id); }
-  else { p.desired = 'running'; if (a === 'restart') runner.stop(p.id); setTimeout(() => runner.start(p), 500); else runner.start(p); }
+  else { p.desired = 'running'; if (a === 'restart') { runner.stop(p.id); setTimeout(() => runner.start(p), 500); } else runner.start(p); }
   save(); res.json(projectView(p));
 });
 function deleteProject(p) { p.desired = 'stopped'; runner.stop(p.id); setTimeout(() => rm(p.dir), 2000); db.projects = db.projects.filter(x => x.id!== p.id); save(); }
