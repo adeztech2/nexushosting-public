@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MtaaniHost — Deploy from GitHub in seconds</title>
+<meta name="description" content="Host your website, web app or bot from GitHub. Free for 14 days, then KES 70 per month. Pay with M-Pesa.">
+<script>
+  tailwind = { config: { darkMode: 'class' } };
+  if (localStorage.getItem('mh_theme') !== 'light') document.documentElement.classList.add('dark'); // dark by default
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<style>
+  body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;-webkit-font-smoothing:antialiased}
+  .grad-text{background:linear-gradient(90deg,#34d399,#22d3ee 50%,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .grid-bg{background-image:linear-gradient(to right,rgba(113,113,122,.14) 1px,transparent 1px),linear-gradient(to bottom,rgba(113,113,122,.14) 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(ellipse at 50% 0,#000 40%,transparent 75%);mask-image:radial-gradient(ellipse at 50% 0,#000 40%,transparent 75%)}
+  .glow{box-shadow:0 0 80px -20px rgba(52,211,153,.45)}
+  .lift{transition:border-color .15s,transform .15s}.lift:hover{border-color:rgba(52,211,153,.6);transform:translateY(-2px)}
+  .pulse{animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.35}}
+  .fadein{animation:fadein .2s ease}@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  details>summary::-webkit-details-marker{display:none}
+  .logs span.cmd{color:#34d399}.logs span.err{color:#f87171}.logs span.ok{color:#4ade80}.logs span.dim{color:#71717a}
+</style>
+</head>
+<body class="bg-white dark:bg-black text-zinc-900 dark:text-zinc-100 min-h-screen flex flex-col">
+<div id="root" class="flex flex-col flex-1 min-h-screen"></div>
+<div id="toast-container" class="fixed bottom-5 right-5 z-[60] flex flex-col gap-2 max-w-xs"></div>
+<div id="modal"></div>
+<script>
+/* ===================== state & helpers ===================== */
+// Same origin when served by the MtaaniHost server (recommended). Set window.MH_API only if the page is hosted elsewhere.
+const API_BASE = typeof window.MH_API === 'string' ? window.MH_API : '';
+let token = localStorage.getItem('mh_token'), atoken = sessionStorage.getItem('mh_admin');
+let me = null, health = null, pollT = null, logCtl = null, humanTok = '', cfToken = '';
+let cfg = { price: 70, trialDays: 14, storageGB: 10, human: 'math', github: false, baseDomain: null };
+let pendingEmail = localStorage.getItem('mh_pending') || '';
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const inp = 'w-full rounded-md border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-zinc-400';
+const btn = 'inline-flex items-center justify-center gap-2 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-black px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-50 whitespace-nowrap';
+const btn2 = 'inline-flex items-center justify-center gap-2 rounded-md border border-zinc-300 dark:border-zinc-800 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-900 whitespace-nowrap';
+const btnDanger = 'inline-flex items-center justify-center gap-2 rounded-md border border-red-500/50 text-red-500 px-3 py-1.5 text-sm hover:bg-red-500/10 whitespace-nowrap';
+const card = 'rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950';
+const lbl = 'block text-xs font-medium text-zinc-500 mb-1';
+const logo = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2 22 20H2L12 2Z" fill="currentColor"/></svg>`;
+const domain = () => cfg.baseDomain || 'mtaanihost.ke';
+
+function toast(msg, bad) {
+  const box = $('#toast-container'); if (!box) return;
+  const d = document.createElement('div');
+  d.className = `rounded-md px-4 py-3 text-sm shadow-lg text-white fadein ${bad ? 'bg-red-600' : 'bg-emerald-600'}`;
+  d.textContent = msg; box.appendChild(d); setTimeout(() => d.remove(), 4500);
+}
+async function api(p, o = {}, t = token) {
+  const h = { 'Content-Type': 'application/json' };
+  if (t) h.Authorization = 'Bearer ' + t;
+  let r;
+  try { r = await fetch(API_BASE + '/api' + p, { ...o, headers: h, body: o.body ? JSON.stringify(o.body) : undefined }); }
+  catch { throw new Error('Cannot reach the server. Check your internet, or wait a minute if the server is waking up.'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || 'Something went wrong'); e.status = r.status; e.data = j; throw e; }
+  return j;
+}
+const setTheme = d => { document.documentElement.classList.toggle('dark', d); localStorage.setItem('mh_theme', d ? 'dark' : 'light'); };
+const toggleTheme = () => setTheme(!document.documentElement.classList.contains('dark'));
+function logout() { token = null; me = null; localStorage.removeItem('mh_token'); location.hash = '#/'; }
+async function loadCfg() { try { cfg = { ...cfg, ...(await api('/config', {}, null)) }; } catch {} }
+async function checkHealth() { try { health = await api('/health', {}, null); } catch { health = { ok: false }; } const el = $('#apiStatus'); if (el) el.innerHTML = statusHtml(); }
+const statusHtml = () => health === null ? 'Checking…' : health.ok ? '<span class="text-emerald-500">●</span> All systems normal' : '<span class="text-red-500">●</span> API unreachable';
+async function loadMe() { if (!token) return null; try { me = await api('/me'); } catch (e) { if (e.status === 401) { token = null; localStorage.removeItem('mh_token'); } me = null; } return me; }
+async function requireAuth() {
+  if (await loadMe()) return true;
+  if (token) { publicShell(`<div class="max-w-md mx-auto px-4 py-24 text-center"><div class="text-4xl mb-3">⏳</div><h1 class="text-xl font-semibold mb-2">The server is waking up</h1><p class="text-sm text-zinc-500 mb-6">Free servers sleep when idle and can take up to a minute to start.</p><button class="${btn}" onclick="route()">Try again</button></div>`); return false; }
+  location.hash = '#/login'; return false;
+}
+function goTo(id) { const s = () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }); if (location.hash && location.hash !== '#/') { location.hash = '#/'; setTimeout(s, 150); } else s(); }
+const fmtB = b => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(0, Math.round((b || 0) / 1024)) + ' KB';
+function ago(ts) { if (!ts) return 'never'; const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; return Math.floor(s / 86400) + 'd ago'; }
+function pill(status) {
+  const m = { live: ['emerald', 'Ready'], building: ['amber', 'Building', 1], queued: ['amber', 'Queued', 1], failed: ['red', 'Failed'], crashed: ['red', 'Crashed'], stopped: ['zinc', 'Stopped'], suspended: ['red', 'Suspended'] }[status] || ['zinc', status];
+  return `<span class="inline-flex items-center gap-1.5 text-xs font-medium text-${m[0]}-500"><span class="h-2 w-2 rounded-full bg-${m[0]}-500 ${m[2] ? 'pulse' : ''}"></span>${esc(m[1])}</span>`;
+}
+function parseHash() { const [path, qs] = (location.hash || '#/').split('?'); return { path, parts: path.replace(/^#\//, '').split('/').filter(Boolean), q: new URLSearchParams(qs || '') }; }
+function stopAll() { clearInterval(pollT); if (logCtl) { logCtl.abort(); logCtl = null; } }
+
+/* ===================== layout ===================== */
+function storageBar() {
+  if (!me) return '';
+  const u = me.storage.usedBytes, q = me.storage.quotaBytes, pct = Math.min(100, q ? (u / q) * 100 : 100);
+  return `<div class="text-xs text-zinc-500 min-w-[180px]"><div class="flex justify-between mb-1"><span>Storage</span><span>${fmtB(u)} / ${fmtB(q)}</span></div><div class="h-1.5 rounded bg-zinc-200 dark:bg-zinc-800 overflow-hidden"><div class="h-full ${pct > 90 ? 'bg-red-500' : 'bg-emerald-500'}" style="width:${pct}%"></div></div></div>`;
+}
+function headerHtml(mode) {
+  const themeBtn = `<button onclick="toggleTheme()" title="Switch theme" aria-label="Switch theme" class="h-9 w-9 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-900 grid place-items-center"><i class="fas fa-adjust"></i></button>`;
+  const lk = 'hidden md:block px-2 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer';
+  let right = '', nav = '';
+  if (mode === 'app') {
+    nav = `<a class="${lk} !block" href="#/dashboard">Projects</a><a class="${lk} !block" href="#/billing">Billing</a>`;
+    const nm = me?.displayName || me?.email || '?';
+    right = `<a class="${btn}" href="#/new"><i class="fas fa-plus"></i><span class="hidden sm:inline">New Project</span></a>${themeBtn}
+      <div class="relative"><button id="menuBtn" onclick="toggleMenu(event)" class="h-9 w-9 rounded-full bg-gradient-to-br from-emerald-400 to-violet-500 text-white text-sm font-bold grid place-items-center">${esc(nm[0].toUpperCase())}</button>
+      <div id="menu" class="hidden absolute right-0 top-full mt-2 w-60 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl p-1.5 z-50">
+        <div class="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 mb-1"><div class="text-sm font-medium truncate">${esc(nm)}</div><div class="text-xs text-zinc-500 truncate">${esc(me?.email || '')}</div></div>
+        <a class="block px-3 py-2 text-sm rounded hover:bg-zinc-100 dark:hover:bg-zinc-900" href="#/dashboard">Projects</a>
+        <a class="block px-3 py-2 text-sm rounded hover:bg-zinc-100 dark:hover:bg-zinc-900" href="#/billing">Billing &amp; payments</a>
+        <a class="block px-3 py-2 text-sm rounded hover:bg-zinc-100 dark:hover:bg-zinc-900" href="#/settings">Settings</a>
+        <button class="block w-full text-left px-3 py-2 text-sm rounded text-red-500 hover:bg-red-500/10" onclick="logout()">Log out</button></div></div>`;
+  } else if (mode === 'admin') {
+    right = `${themeBtn}${atoken ? `<button class="${btn2}" onclick="adminLogout()">Admin log out</button>` : ''}<a class="${btn2}" href="#/">Home</a>`;
+  } else {
+    nav = `<a class="${lk}" onclick="goTo('features')">Features</a><a class="${lk}" onclick="goTo('pricing')">Pricing</a><a class="${lk}" onclick="goTo('faq')">FAQ</a>`;
+    right = `${themeBtn}${token ? `<a class="${btn}" href="#/dashboard">Dashboard</a>` : `<a class="${btn2}" href="#/login">Log in</a><a class="${btn}" href="#/signup">Sign up</a>`}`;
+  }
+  return `<header class="sticky top-0 z-40 backdrop-blur border-b border-zinc-200 dark:border-zinc-900 bg-white/80 dark:bg-black/80"><div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-4"><a href="#/" class="flex items-center gap-2 font-semibold">${logo}<span>MtaaniHost</span></a>${nav}</div><div class="flex items-center gap-2">${right}</div></div></header>`;
+}
+function footerHtml() {
+  return `<footer class="border-t border-zinc-200 dark:border-zinc-900 mt-16"><div class="max-w-6xl mx-auto px-4 py-8 flex flex-col sm:flex-row gap-3 items-center justify-between text-xs text-zinc-500">
+    <div>© ${new Date().getFullYear()} MtaaniHost · Nairobi, Kenya</div><div><span id="apiStatus">${statusHtml()}</span></div>
+    <div class="flex gap-4"><a class="hover:text-emerald-500" href="#/billing">Billing</a><a class="hover:text-emerald-500 cursor-pointer" onclick="goTo('faq')">FAQ</a><a class="hover:text-emerald-500" href="#/admin">Admin</a></div></div></footer>`;
+}
+const publicShell = inner => { $('#root').innerHTML = `${headerHtml('public')}<main class="flex-1 fadein">${inner}</main>${footerHtml()}`; };
+const appShell = inner => { $('#root').innerHTML = `${headerHtml('app')}<main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8 fadein">${inner}</main>${footerHtml()}`; };
+const adminShell = inner => { $('#root').innerHTML = `${headerHtml('admin')}<main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8 fadein">${inner}</main>${footerHtml()}`; };
+function toggleMenu(e) { e?.stopPropagation(); $('#menu')?.classList.toggle('hidden'); }
+document.addEventListener('click', e => { const m = $('#menu'); if (m && !e.target.closest('#menu') && !e.target.closest('#menuBtn')) m.classList.add('hidden'); });
+
+/* ===================== landing ===================== */
+function landing() {
+  const P = cfg.price, T = cfg.trialDays, S = cfg.storageGB;
+  const feats = [
+    ['fab fa-github', 'Import from GitHub', 'Connect GitHub once, pick a repository and deploy. Private repositories work too.'],
+    ['fas fa-wand-magic-sparkles', 'Smart build settings', 'We read your package.json and suggest the install, build and start commands. Edit them any time.'],
+    ['fas fa-terminal', 'Live build logs', 'Watch your build and your running app live, line by line, right in the browser.'],
+    ['fas fa-key', 'Environment variables', 'Add as many keys as you need. Values stay hidden once saved.'],
+    ['fas fa-link', 'Instant link', `Your site is live at yourname.${domain()} the moment the build finishes.`],
+    ['fas fa-mobile-screen', 'Pay with M-Pesa', `KES ${P} a month through Paystack. Pay and your site is back online automatically.`]
+  ];
+  const faqs = [
+    ['What can I deploy?', 'Static websites (plain HTML, Vite, React, Vue, Astro and more), Node.js web apps (Express, Next.js) and Node.js bots (WhatsApp, Telegram, Discord) from a GitHub repository.'],
+    ['How does the free trial work?', `Every new account gets ${T} days free. You can deploy straight away and no card is needed.`],
+    ['What happens when the trial ends?', `Your sites go offline and we ask for payment. It is KES ${P} per month. Pay and everything switches on again by itself. Nothing is deleted.`],
+    ['How much storage do I get?', `${S} GB per account by default. The admin can raise it for you.`],
+    ['Do I need a GitHub account?', 'To import repositories, yes. You can also sign up with an email and password and paste the URL of any public repository.']
+  ];
+  publicShell(`
+  <section class="relative overflow-hidden"><div class="absolute inset-0 grid-bg"></div>
+    <div class="relative max-w-4xl mx-auto px-4 pt-24 pb-20 text-center">
+      <span class="inline-flex items-center gap-2 rounded-full border border-zinc-300 dark:border-zinc-800 px-3 py-1 text-xs text-zinc-500 mb-6"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Made in Kenya · ${esc(T)} days free · KES ${esc(P)}/month</span>
+      <h1 class="text-4xl sm:text-6xl font-bold tracking-tight leading-[1.05]">Deploy from GitHub<br><span class="grad-text">in seconds.</span></h1>
+      <p class="mt-6 text-lg text-zinc-500 max-w-2xl mx-auto">Host your website, web app or bot without touching a server. Push to GitHub, press deploy, and pay simply with M-Pesa.</p>
+      <div class="mt-9 flex flex-wrap gap-3 justify-center"><a href="#/signup" class="${btn} !px-6 !py-3 text-base"><i class="fab fa-github"></i> Import from GitHub</a><a href="#/signup" class="${btn2} !px-6 !py-3 text-base">Start for free</a></div>
+      <div class="mt-14 max-w-2xl mx-auto text-left rounded-lg border border-zinc-800 bg-zinc-950 glow overflow-hidden"><div class="flex gap-1.5 px-4 py-3 border-b border-zinc-800"><span class="h-3 w-3 rounded-full bg-zinc-700"></span><span class="h-3 w-3 rounded-full bg-zinc-700"></span><span class="h-3 w-3 rounded-full bg-zinc-700"></span></div>
+<pre class="p-5 text-xs sm:text-sm leading-relaxed overflow-x-auto text-zinc-300"><span class="text-emerald-400">$</span> git clone bakerystore
+<span class="text-emerald-400">$</span> npm install
+<span class="text-emerald-400">$</span> npm run build
+<span class="text-green-400">✔</span> Deployment ready
+<span class="text-cyan-400">https://bakerystore.${esc(domain())}</span></pre></div>
+    </div></section>
+  <section id="features" class="max-w-6xl mx-auto px-4 py-20"><div class="text-center mb-12"><h2 class="text-3xl font-bold">Everything you need to ship</h2><p class="mt-3 text-zinc-500">Simple enough for a first website, solid enough for a real product.</p></div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">${feats.map(f => `<div class="${card} lift p-6"><div class="h-10 w-10 rounded-md bg-emerald-500/10 text-emerald-500 grid place-items-center mb-4"><i class="${f[0]}"></i></div><h3 class="font-semibold mb-1.5">${f[1]}</h3><p class="text-sm text-zinc-500 leading-relaxed">${f[2]}</p></div>`).join('')}</div></section>
+  <section class="border-y border-zinc-200 dark:border-zinc-900"><div class="max-w-5xl mx-auto px-4 py-20"><h2 class="text-3xl font-bold text-center mb-12">Three steps to go live</h2><div class="grid md:grid-cols-3 gap-6">
+    ${[['1', 'Connect GitHub', 'Sign in with GitHub or email, then authorize access to your repositories.'], ['2', 'Pick a repository', 'We detect the framework and fill in the build settings for you.'], ['3', 'Deploy', 'Watch the live logs, then open your link and share it.']].map(s => `<div class="text-center"><div class="mx-auto h-11 w-11 rounded-full border border-zinc-300 dark:border-zinc-700 grid place-items-center font-semibold mb-4">${s[0]}</div><h3 class="font-semibold mb-1">${s[1]}</h3><p class="text-sm text-zinc-500">${s[2]}</p></div>`).join('')}</div></div></section>
+  <section id="pricing" class="max-w-4xl mx-auto px-4 py-20"><div class="text-center mb-12"><h2 class="text-3xl font-bold">One simple price</h2><p class="mt-3 text-zinc-500">Start free. Pay only when you are ready.</p></div>
+    <div class="grid sm:grid-cols-2 gap-5">
+      <div class="${card} p-8"><h3 class="font-semibold">Free trial</h3><p class="text-5xl font-bold mt-4">KES 0</p><p class="text-sm text-zinc-500 mt-1">for ${esc(T)} days</p><ul class="mt-6 space-y-2.5 text-sm text-zinc-500"><li>✓ Deploy anything</li><li>✓ ${esc(S)} GB storage</li><li>✓ No card needed</li></ul><a href="#/signup" class="${btn2} w-full mt-8 !py-2.5">Start free</a></div>
+      <div class="${card} p-8 !border-emerald-500/70 glow"><h3 class="font-semibold">Pro</h3><p class="text-5xl font-bold mt-4 grad-text">KES ${esc(P)}</p><p class="text-sm text-zinc-500 mt-1">per month</p><ul class="mt-6 space-y-2.5 text-sm text-zinc-500"><li>✓ Sites and bots online 24/7</li><li>✓ ${esc(S)} GB storage</li><li>✓ Pay with M-Pesa or card</li><li>✓ Back online the moment you pay</li></ul><a href="#/signup" class="${btn} w-full mt-8 !py-2.5">Get started</a></div></div></section>
+  <section id="faq" class="max-w-3xl mx-auto px-4 pb-20"><h2 class="text-3xl font-bold text-center mb-10">Questions</h2><div class="space-y-3">${faqs.map(f => `<details class="group ${card} p-5"><summary class="cursor-pointer list-none flex justify-between items-center gap-4 font-medium">${f[0]}<span class="text-zinc-400 text-xl transition group-open:rotate-45">+</span></summary><p class="mt-3 text-sm text-zinc-500 leading-relaxed">${f[1]}</p></details>`).join('')}</div></section>
+  <section class="max-w-5xl mx-auto px-4 pb-8"><div class="${card} p-10 text-center glow"><h2 class="text-3xl font-bold">Ready to deploy?</h2><p class="mt-3 text-zinc-500">Create your account and have your first site live in minutes.</p><a href="#/signup" class="${btn} mt-6 !px-8 !py-3">Create free account</a></div></section>`);
+}
+
+/* ===================== human check + auth ===================== */
+function loadTurnstile() {
+  return new Promise((ok, no) => {
+    const t0 = Date.now();
+    if (!document.querySelector('script[data-turnstile]')) { const s = document.createElement('script'); s.dataset.turnstile = '1'; s.async = true; s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; s.onerror = () => no(new Error('Could not load the human check')); document.head.appendChild(s); }
+    const iv = setInterval(() => { if (window.turnstile) { clearInterval(iv); ok(); } else if (Date.now() - t0 > 8000) { clearInterval(iv); no(new Error('Could not load the human check')); } }, 60);
+  });
+}
+async function setupHuman() {
+  const box = $('#human'); if (!box) return;
+  humanTok = ''; cfToken = '';
+  if (cfg.human === 'turnstile' && cfg.turnstileSiteKey) {
+    box.innerHTML = '<div id="cft"></div>';
+    try { await loadTurnstile(); window.turnstile.render('#cft', { sitekey: cfg.turnstileSiteKey, theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light', callback: t => { cfToken = t; }, 'expired-callback': () => { cfToken = ''; } }); }
+    catch (e) { box.innerHTML = `<p class="text-xs text-red-500">${esc(e.message)}. Refresh the page.</p>`; }
+    return;
+  }
+  try {
+    const h = await api('/human', {}, null); humanTok = h.token;
+    box.innerHTML = `<label class="${lbl}">Verify you're human: what is <b>${esc(h.question)}</b> ?</label><div class="flex gap-2"><input class="${inp}" id="ha" inputmode="numeric" autocomplete="off" placeholder="Your answer" required><button type="button" class="${btn2}" id="hr" title="New question">↻</button></div>`;
+    $('#hr').onclick = setupHuman;
+  } catch (e) { box.innerHTML = `<p class="text-xs text-red-500">${esc(e.message)}</p>`; }
+}
+function authView(mode) {
+  const su = mode === 'signup', q = parseHash().q;
+  publicShell(`<div class="max-w-sm mx-auto px-4 py-16"><div class="text-center mb-8"><div class="flex justify-center mb-3">${logo}</div><h1 class="text-2xl font-semibold">${su ? 'Create your account' : 'Log in to MtaaniHost'}</h1>${su ? `<p class="text-sm text-zinc-500 mt-1">${esc(cfg.trialDays)} days free. No card needed.</p>` : ''}</div>
+    ${q.get('verified') ? '<p class="mb-4 text-sm text-emerald-500 text-center">Email verified. You can log in now.</p>' : ''}
+    ${cfg.github ? `<a href="${API_BASE}/api/auth/github" class="${btn} w-full !py-2.5 mb-4"><i class="fab fa-github"></i> Continue with GitHub</a><div class="flex items-center gap-3 text-xs text-zinc-500 mb-4"><div class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></div>or<div class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></div></div>` : ''}
+    <form id="f" class="space-y-3"><div><label class="${lbl}">Email</label><input class="${inp}" type="email" id="em" required autocomplete="email" placeholder="you@gmail.com"></div>
+    <div><label class="${lbl}">Password</label><input class="${inp}" type="password" id="pw" required autocomplete="${su ? 'new-password' : 'current-password'}" placeholder="${su ? 'At least 8 characters' : ''}"></div>
+    <div id="human"><p class="text-xs text-zinc-500">Loading human check…</p></div><button class="${btn} w-full !py-2.5" id="sb">${su ? 'Sign up' : 'Log in'}</button></form>
+    <p class="text-center text-sm text-zinc-500 mt-5">${su ? 'Already have an account? <a class="underline" href="#/login">Log in</a>' : 'New here? <a class="underline" href="#/signup">Sign up</a>'}</p></div>`);
+  if (q.get('error')) toast(q.get('error'), true);
+  setupHuman();
+  $('#f').onsubmit = async e => {
+    e.preventDefault();
+    const email = $('#em').value.trim(), password = $('#pw').value, tsMode = cfg.human === 'turnstile' && cfg.turnstileSiteKey;
+    if (tsMode && !cfToken) return toast('Please complete the human check first', true);
+    if (!tsMode && !humanTok) return toast('The human check did not load. Press ↻ and try again.', true);
+    const b = $('#sb'); b.disabled = true;
+    try {
+      const r = await api(su ? '/auth/signup' : '/auth/login', { method: 'POST', body: { email, password, humanToken: humanTok, humanAnswer: $('#ha') ? $('#ha').value : '', cfToken } }, null);
+      if (su && !r.token) { pendingEmail = email; localStorage.setItem('mh_pending', email); location.hash = '#/verify'; return; }
+      token = r.token; localStorage.setItem('mh_token', token); me = r.user; location.hash = '#/dashboard';
+    } catch (err) {
+      if (err.data && err.data.needVerify) { pendingEmail = email; localStorage.setItem('mh_pending', email); location.hash = '#/verify'; return; }
+      toast(err.message, true); b.disabled = false; setupHuman();
+    }
+  };
+}
+function verifyView() {
+  if (!pendingEmail) { location.hash = '#/signup'; return; }
+  publicShell(`<div class="max-w-sm mx-auto px-4 py-16 text-center"><div class="text-4xl mb-3">✉️</div><h1 class="text-2xl font-semibold mb-2">Check your email</h1><p class="text-sm text-zinc-500 mb-6">We sent a 6-digit code to<br><b>${esc(pendingEmail)}</b></p>
+    <form id="f" class="space-y-3"><input class="${inp} text-center text-2xl tracking-[.5em]" id="cd" maxlength="6" inputmode="numeric" placeholder="······" required><button class="${btn} w-full !py-2.5">Verify</button></form><button id="rs" class="text-sm text-zinc-500 underline mt-4">Resend code</button></div>`);
+  $('#f').onsubmit = async e => { e.preventDefault(); try { await api('/auth/verify', { method: 'POST', body: { email: pendingEmail, code: $('#cd').value.trim() } }, null); location.hash = '#/login?verified=1'; } catch (err) { toast(err.message, true); } };
+  $('#rs').onclick = async () => { try { await api('/auth/resend', { method: 'POST', body: { email: pendingEmail } }, null); toast('A new code has been sent'); } catch (err) { toast(err.message, true); } };
+}
+function oauthView() { const t = parseHash().q.get('token'); if (t) { token = t; localStorage.setItem('mh_token', t); history.replaceState(null, '', location.pathname + location.search); location.hash = '#/dashboard'; } else location.hash = '#/login'; }
+
+/* ===================== dashboard ===================== */
+function banner() {
+  if (!me) return '';
+  if (me.status === 'trial') return `<div class="${card} px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm"><span>🎁 Free trial: <b>${me.daysLeft} days</b> left</span><a href="#/billing" class="${btn2}">Pay early</a></div>`;
+  if (me.status === 'expired') return `<div class="${card} px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm !border-red-500/60"><span class="text-red-500">Your free trial has ended and your projects are offline.</span><a href="#/billing" class="${btn}">Pay KES ${esc(me.price)}</a></div>`;
+  if (me.status === 'paid') return `<div class="${card} px-4 py-3 text-sm">✅ Paid. ${me.daysLeft} days left.</div>`;
+  return '';
+}
+async function dashboardView() {
+  if (!(await requireAuth())) return;
+  appShell(`<div class="flex flex-wrap items-end justify-between gap-4 mb-6"><div><h1 class="text-2xl font-semibold">Projects</h1><p class="text-sm text-zinc-500">Hi ${esc(me.displayName)} 👋</p></div>${storageBar()}</div><div class="mb-6">${banner()}</div><div id="plist"></div>`);
+  await renderProjects();
+  pollT = setInterval(() => { if (parseHash().path === '#/dashboard') renderProjects(); }, 5000);
+}
+async function renderProjects() {
+  const el = $('#plist'); if (!el) return;
+  let list; try { list = await api('/projects'); } catch (e) { if (e.status === 401) return logout(); el.innerHTML = `<p class="text-sm text-red-500">${esc(e.message)}</p>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="${card} p-14 text-center"><div class="text-4xl mb-3">🚀</div><h2 class="text-lg font-semibold mb-1">Deploy your first project</h2><p class="text-sm text-zinc-500 mb-6">Import a repository from GitHub and go live in minutes.</p><a class="${btn}" href="#/new"><i class="fab fa-github"></i> Import from GitHub</a></div>`; return; }
+  el.innerHTML = `<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">${list.map(p => `<a href="#/project/${p.id}" class="${card} lift p-5 block">
+    <div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="font-semibold truncate">${esc(p.name)}</div><div class="text-xs text-zinc-500 truncate mt-0.5"><i class="fab fa-github"></i> ${esc(p.repo)}${p.branch ? ' · ' + esc(p.branch) : ''}</div></div>${pill(p.status)}</div>
+    <div class="mt-4 text-sm text-emerald-500 truncate">${p.kind === 'service' && !p.exposeWeb ? '<span class="text-zinc-500">Background worker (no website)</span>' : esc(p.url.replace(/^https?:\/\//, ''))}</div>
+    <div class="mt-3 text-xs text-zinc-500 flex justify-between"><span>${esc(p.framework || (p.kind === 'service' ? 'Service' : 'Static'))}</span><span>${p.lastDeployAt ? 'Deployed ' + ago(p.lastDeployAt) : 'Not deployed yet'}</span></div></a>`).join('')}</div>`;
+}
+
+/* ===================== import from GitHub ===================== */
+async function newView() {
+  if (!(await requireAuth())) return;
+  const q = parseHash().q, connected = me.github.connected;
+  appShell(`<div class="max-w-3xl mx-auto"><h1 class="text-2xl font-semibold mb-1">Import a project</h1><p class="text-sm text-zinc-500 mb-6">Choose a repository to deploy.</p>
+    <div id="gh" class="${card} p-6 mb-6"><p class="text-sm text-zinc-500">Loading…</p></div>
+    <div class="${card} p-6"><h2 class="font-medium mb-1">Or import a public repository by URL</h2><p class="text-xs text-zinc-500 mb-3">Works without connecting GitHub.</p>
+    <form id="urlf" class="flex gap-2"><input class="${inp}" id="url" placeholder="https://github.com/owner/repository" required><button class="${btn}">Continue</button></form></div></div>`);
+  if (q.get('connected')) toast('GitHub connected 🎉');
+  if (q.get('error')) toast(q.get('error'), true);
+  $('#urlf').onsubmit = e => {
+    e.preventDefault();
+    const m = $('#url').value.trim().match(/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/);
+    if (!m) return toast('Paste a link like https://github.com/owner/repository', true);
+    location.hash = '#/new/configure?repo=' + encodeURIComponent(m[1] + '/' + m[2]);
+  };
+  const box = $('#gh');
+  if (!connected) {
+    box.innerHTML = `<div class="text-center py-6"><div class="text-4xl mb-3"><i class="fab fa-github"></i></div><h2 class="font-semibold mb-1">Connect your GitHub</h2><p class="text-sm text-zinc-500 max-w-md mx-auto mb-5">You will be sent to GitHub to authorize MtaaniHost. When you accept you come straight back here and your repositories appear. We need repository access so you can also deploy private projects.</p>${cfg.github ? `<button class="${btn}" id="conn"><i class="fab fa-github"></i> Connect GitHub</button>` : '<p class="text-sm text-amber-500">GitHub connection is not set up on this server yet. You can still use the URL option below.</p>'}</div>`;
+    if ($('#conn')) $('#conn').onclick = async () => { try { location.href = (await api('/github/connect', { method: 'POST' })).url; } catch (e) { toast(e.message, true); } };
+    return;
+  }
+  try {
+    const repos = await api('/github/repos');
+    const draw = f => {
+      const l = repos.filter(r => r.full_name.toLowerCase().includes(f.toLowerCase()));
+      $('#repos').innerHTML = l.length ? l.map(r => `<div class="flex items-center justify-between gap-3 py-3 border-t border-zinc-200 dark:border-zinc-800 first:border-0"><div class="min-w-0"><div class="text-sm font-medium truncate"><i class="fab fa-github text-zinc-500"></i> ${esc(r.full_name)} ${r.private ? '<span class="ml-1 text-[10px] uppercase tracking-wide border border-zinc-300 dark:border-zinc-700 rounded px-1.5 py-0.5 text-zinc-500">Private</span>' : ''}</div><div class="text-xs text-zinc-500 truncate">${esc(r.language || '')}${r.language ? ' · ' : ''}updated ${ago(Date.parse(r.updated_at))}</div></div><a class="${btn2}" href="#/new/configure?repo=${encodeURIComponent(r.full_name)}&branch=${encodeURIComponent(r.default_branch || '')}">Import</a></div>`).join('') : '<p class="text-sm text-zinc-500 py-4">No repositories match.</p>';
+    };
+    box.innerHTML = `<div class="flex items-center justify-between gap-3 mb-3"><h2 class="font-medium"><i class="fab fa-github"></i> ${esc(me.github.login || 'GitHub')}</h2><button class="text-xs text-zinc-500 underline" id="disc">Disconnect</button></div><input class="${inp} mb-2" id="rsearch" placeholder="Search repositories…"><div id="repos"></div>`;
+    draw(''); $('#rsearch').oninput = e => draw(e.target.value);
+    $('#disc').onclick = async () => { if (!confirm('Disconnect GitHub? Existing projects keep running, but redeploying private repositories will need a new connection.')) return; await api('/github/disconnect', { method: 'POST' }); newView(); };
+  } catch (e) { box.innerHTML = `<p class="text-sm text-red-500 mb-3">${esc(e.message)}</p>${e.data && e.data.needConnect ? `<button class="${btn}" id="conn"><i class="fab fa-github"></i> Connect GitHub</button>` : ''}`; if ($('#conn')) $('#conn').onclick = async () => { location.href = (await api('/github/connect', { method: 'POST' })).url; }; }
+}
+
+/* ===================== environment variable editor ===================== */
+function envRow(key = '', saved = false, value = '') {
+  return `<div class="env-row flex gap-2" data-saved="${saved ? 1 : 0}"><input class="${inp} font-mono env-k" placeholder="KEY" value="${esc(key)}" ${saved ? 'readonly' : ''}><input class="${inp} font-mono env-v" type="${saved ? 'password' : 'text'}" placeholder="${saved ? '•••••••• saved (empty = keep)' : 'value'}" value="${esc(value)}" autocomplete="off"><button type="button" class="${btn2}" onclick="this.closest('.env-row').remove()" title="Remove">✕</button></div>`;
+}
+const envEditor = vars => `<div id="envrows" class="space-y-2">${vars.map(v => envRow(v.key, true)).join('')}</div>
+  <div class="flex flex-wrap gap-2 mt-3"><button type="button" class="${btn2}" onclick="addEnvRow()">+ Add variable</button><button type="button" class="${btn2}" onclick="toggleBulk()">Paste .env</button></div>
+  <div id="bulk" class="hidden mt-3"><textarea id="bulkta" rows="5" class="${inp} font-mono" placeholder="KEY=value&#10;ANOTHER_KEY=value"></textarea><button type="button" class="${btn2} mt-2" onclick="applyBulk()">Add these variables</button></div>`;
+function addEnvRow(k = '', v = '') { $('#envrows').insertAdjacentHTML('beforeend', envRow(k, false, v)); }
+function toggleBulk() { $('#bulk').classList.toggle('hidden'); }
+function applyBulk() {
+  for (const l of $('#bulkta').value.split(/\r?\n/)) { const m = l.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/); if (m) addEnvRow(m[1], m[2].replace(/^["']|["']$/g, '')); }
+  $('#bulkta').value = ''; $('#bulk').classList.add('hidden');
+}
+const readEnv = () => [...document.querySelectorAll('.env-row')].map(r => {
+  const key = r.querySelector('.env-k').value.trim(), v = r.querySelector('.env-v').value;
+  return { key, value: r.dataset.saved === '1' && v === '' ? null : v };
+}).filter(x => x.key);
+
+/* ===================== configure + deploy ===================== */
+const typeOf = c => c.kind === 'static' ? 'static' : c.exposeWeb ? 'web' : 'worker';
+function cmdFields(c, type) {
+  return `<div class="grid sm:grid-cols-2 gap-3"><div><label class="${lbl}">Install command</label><input class="${inp} font-mono" id="c_install" value="${esc(c.installCmd)}" placeholder="npm install"></div>
+    <div><label class="${lbl}">Build command</label><input class="${inp} font-mono" id="c_build" value="${esc(c.buildCmd)}" placeholder="npm run build"></div>
+    <div id="w_start" class="${type === 'static' ? 'hidden' : ''}"><label class="${lbl}">Start command</label><input class="${inp} font-mono" id="c_start" value="${esc(c.startCmd)}" placeholder="npm start"></div>
+    <div id="w_out" class="${type === 'static' ? '' : 'hidden'}"><label class="${lbl}">Output directory</label><input class="${inp} font-mono" id="c_out" value="${esc(c.outputDir)}" placeholder="dist"></div></div>`;
+}
+const typeSelect = type => `<select class="${inp}" id="c_type"><option value="static" ${type === 'static' ? 'selected' : ''}>Static website (HTML, React, Vue…)</option><option value="web" ${type === 'web' ? 'selected' : ''}>Web service (Node.js, Express, Next.js)</option><option value="worker" ${type === 'worker' ? 'selected' : ''}>Background worker / bot (no website)</option></select>`;
+const bindType = () => $('#c_type').onchange = e => { const st = e.target.value === 'static'; $('#w_start').classList.toggle('hidden', st); $('#w_out').classList.toggle('hidden', !st); };
+function readCmds() { const t = $('#c_type').value; return { kind: t === 'static' ? 'static' : 'service', exposeWeb: t === 'web', installCmd: $('#c_install').value.trim(), buildCmd: $('#c_build').value.trim(), startCmd: t === 'static' ? '' : $('#c_start').value.trim(), outputDir: t === 'static' ? $('#c_out').value.trim() : '' }; }
+
+async function configureView() {
+  if (!(await requireAuth())) return;
+  const q = parseHash().q, repo = q.get('repo') || '';
+  if (!repo) { location.hash = '#/new'; return; }
+  appShell(`<div class="max-w-2xl mx-auto"><a href="#/new" class="text-sm text-zinc-500 hover:underline">← Back</a><h1 class="text-2xl font-semibold mt-2 mb-6">Configure project</h1><div id="cfgbox" class="${card} p-6"><p class="text-sm text-zinc-500"><i class="fas fa-spinner fa-spin"></i> Reading ${esc(repo)}…</p></div></div>`);
+  let d;
+  try { d = await api(`/github/detect?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(q.get('branch') || '')}`); }
+  catch (e) { $('#cfgbox').innerHTML = `<p class="text-sm text-red-500 mb-4">${esc(e.message)}</p>${e.data && e.data.needConnect ? `<a class="${btn}" href="#/new">Connect GitHub</a>` : `<a class="${btn2}" href="#/new">Choose another repository</a>`}`; return; }
+  const type = typeOf(d);
+  $('#cfgbox').innerHTML = `<form id="f" class="space-y-5">
+    <div class="flex items-center justify-between gap-3 flex-wrap"><div class="text-sm"><i class="fab fa-github"></i> <b>${esc(d.repo)}</b> ${d.private ? '<span class="ml-1 text-[10px] uppercase border border-zinc-300 dark:border-zinc-700 rounded px-1.5 py-0.5 text-zinc-500">Private</span>' : ''}</div><span class="text-xs rounded-full bg-emerald-500/10 text-emerald-500 px-3 py-1">Auto-detected: ${esc(d.framework)}</span></div>
+    ${(d.notes || []).map(n => `<p class="text-xs text-amber-500">⚠ ${esc(n)}</p>`).join('')}
+    <div class="grid sm:grid-cols-2 gap-3"><div><label class="${lbl}">Project name</label><input class="${inp}" id="c_name" value="${esc(d.repo.split('/')[1])}" maxlength="40" required></div><div><label class="${lbl}">Branch</label><input class="${inp}" id="c_branch" value="${esc(d.branch)}"></div></div>
+    <p class="text-xs text-zinc-500 -mt-3">Your address: <span class="text-emerald-500" id="addr"></span></p>
+    <div><label class="${lbl}">Project type</label>${typeSelect(type)}</div>
+    <div><div class="text-sm font-medium mb-2">Build &amp; run settings <span class="text-xs font-normal text-zinc-500">(suggested for you, edit if needed)</span></div>${cmdFields(d, type)}</div>
+    <div><div class="text-sm font-medium mb-2">Environment variables</div>${envEditor([])}</div>
+    <button class="${btn} w-full !py-2.5" id="sb"><i class="fas fa-rocket"></i> Deploy</button></form>`;
+  const slug = () => ($('#c_name').value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'project';
+  const addr = () => $('#addr').textContent = `${slug()}.${domain()}`; addr(); $('#c_name').oninput = addr; bindType();
+  $('#f').onsubmit = async e => {
+    e.preventDefault(); const b = $('#sb'); b.disabled = true; b.innerHTML = 'Starting…';
+    try {
+      const p = await api('/projects', { method: 'POST', body: { repo: d.repo, name: $('#c_name').value.trim(), branch: $('#c_branch').value.trim(), framework: d.framework, ...readCmds(), env: readEnv() } });
+      location.hash = `#/project/${p.id}?tab=logs`;
+    } catch (err) { toast(err.message, true); if (err.status === 402) location.hash = '#/billing'; b.disabled = false; b.innerHTML = '<i class="fas fa-rocket"></i> Deploy'; }
+  };
+}
+
+/* ===================== project page (live logs, env, settings) ===================== */
+const lineHtml = l => { const c = /^\$ /.test(l) ? 'cmd' : /^✖|error|failed/i.test(l) ? 'err' : /^✔|ready/i.test(l) ? 'ok' : /^▲/.test(l) ? 'cmd' : ''; return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); };
+async function streamLogs(id, pre, onStatus) {
+  if (logCtl) logCtl.abort(); const ctl = logCtl = new AbortController(); let first = true;
+  const scroll = near => { if (near) pre.scrollTop = pre.scrollHeight; };
+  const handle = ev => {
+    const near = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 60;
+    if (ev.lines) { pre.innerHTML = ev.lines.map(lineHtml).join('\n') + (ev.lines.length ? '\n' : ''); scroll(true); }
+    if (ev.line !== undefined) { pre.insertAdjacentHTML('beforeend', lineHtml(ev.line) + '\n'); scroll(near); }
+    if (ev.status && onStatus) onStatus(ev.status);
+  };
+  while (!ctl.signal.aborted) {
+    try {
+      const res = await fetch(API_BASE + `/api/projects/${id}/logs/stream`, { headers: { Authorization: 'Bearer ' + token }, signal: ctl.signal });
+      if (!res.ok || !res.body) throw new Error('stream');
+      const reader = res.body.getReader(), dec = new TextDecoder(); let buf = ''; first = false;
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0, i); buf = buf.slice(i + 2); const line = chunk.split('\n').find(x => x.startsWith('data: ')); if (line) { try { handle(JSON.parse(line.slice(6))); } catch {} } }
+      }
+    } catch { if (ctl.signal.aborted) return; }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+function projectHead(p) {
+  const tabs = [['logs', 'Logs'], ['env', 'Environment'], ['settings', 'Settings']], tab = parseHash().q.get('tab') || 'logs';
+  const visit = p.kind === 'service' && !p.exposeWeb ? '' : `<a class="${btn2}" href="${esc(p.url)}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Visit</a>`;
+  const svc = p.kind === 'service' ? (p.desired === 'stopped' ? `<button class="${btn2}" onclick="projAction('start')">Start</button>` : `<button class="${btn2}" onclick="projAction('stop')">Stop</button>`) : '';
+  return `<div class="flex flex-wrap items-start justify-between gap-4 mb-6"><div class="min-w-0"><div class="flex items-center gap-3 flex-wrap"><h1 class="text-2xl font-semibold truncate">${esc(p.name)}</h1>${pill(p.status)}</div>
+      <div class="text-sm text-zinc-500 mt-1.5 flex flex-wrap gap-x-4 gap-y-1"><span><i class="fab fa-github"></i> ${esc(p.repo)}${p.branch ? ' · ' + esc(p.branch) : ''}</span><span>${esc(p.framework || p.kind)}</span><span>${fmtB(p.sizeBytes)}</span><span>${p.lastDeployAt ? 'Deployed ' + ago(p.lastDeployAt) : 'Not deployed yet'}</span></div>
+      ${p.kind === 'static' || p.exposeWeb ? `<a class="text-sm text-emerald-500 hover:underline break-all" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url.replace(/^https?:\/\//, ''))}</a>` : ''}
+      ${p.status === 'suspended' ? `<p class="text-sm text-red-500 mt-2">${p.suspendedBy === 'admin' ? 'An admin turned this project off.' : 'Offline because the free trial or payment ended. <a class="underline" href="#/billing">Pay to turn it on</a>.'}</p>` : ''}
+      ${p.lastError && p.status === 'failed' ? `<p class="text-sm text-red-500 mt-2">${esc(p.lastError)}</p>` : ''}</div>
+    <div class="flex gap-2 flex-wrap">${visit}${svc}<button class="${btn}" onclick="projAction('deploy')"><i class="fas fa-rotate"></i> Redeploy</button></div></div>
+    <div class="flex gap-1 border-b border-zinc-200 dark:border-zinc-800 mb-6">${tabs.map(t => `<a href="#/project/${p.id}?tab=${t[0]}" class="px-4 py-2 text-sm -mb-px border-b-2 ${tab === t[0] ? 'border-emerald-500 font-medium' : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-white'}">${t[1]}</a>`).join('')}</div>`;
+}
+let curProject = null;
+async function projAction(a) {
+  try { curProject = await api(`/projects/${curProject.id}/${a}`, { method: 'POST' }); toast(a === 'deploy' ? 'Deployment started' : 'Done'); projectView(); }
+  catch (e) { toast(e.message, true); if (e.status === 402) location.hash = '#/billing'; }
+}
+async function projectView() {
+  stopAll(); // never keep two log streams or timers alive
+  if (!(await requireAuth())) return;
+  const { parts, q } = parseHash(), id = parts[1], tab = q.get('tab') || 'logs';
+  try { curProject = await api('/projects/' + id); } catch (e) { toast(e.message, true); location.hash = '#/dashboard'; return; }
+  const p = curProject;
+  appShell(`${projectHead(p)}<div id="tabbody"></div>`);
+  const body = $('#tabbody');
+  if (tab === 'logs') {
+    body.innerHTML = `<div class="flex items-center justify-between mb-2 text-xs text-zinc-500"><span><span class="pulse text-emerald-500">●</span> Live — build and runtime output</span></div><pre id="logs" class="logs bg-black text-zinc-300 text-xs leading-relaxed rounded-lg border border-zinc-800 p-4 h-[28rem] overflow-auto whitespace-pre-wrap break-words"></pre>`;
+    streamLogs(id, $('#logs'));
+    pollT = setInterval(async () => { try { const np = await api('/projects/' + id); if (np.status !== curProject.status || np.url !== curProject.url) projectView(); } catch {} }, 3000);
+  } else if (tab === 'env') {
+    let vars = []; try { vars = (await api(`/projects/${id}/env`)).vars; } catch {}
+    body.innerHTML = `<div class="${card} p-6 max-w-3xl"><h2 class="font-medium mb-1">Environment variables</h2><p class="text-xs text-zinc-500 mb-4">Saved values are hidden. Type a new value to replace one, or leave it empty to keep it. Changes apply on the next deployment.</p><form id="f">${envEditor(vars)}<div class="flex flex-wrap gap-2 mt-5"><button class="${btn}" data-go="0">Save</button><button type="button" class="${btn2}" id="saveDeploy">Save &amp; redeploy</button></div></form></div>`;
+    const save = async redeploy => { try { await api(`/projects/${id}/env`, { method: 'PUT', body: { vars: readEnv() } }); toast('Saved'); if (redeploy) { await api(`/projects/${id}/deploy`, { method: 'POST' }); location.hash = `#/project/${id}?tab=logs`; } else projectView(); } catch (e) { toast(e.message, true); } };
+    $('#f').onsubmit = e => { e.preventDefault(); save(false); }; $('#saveDeploy').onclick = () => save(true);
+  } else {
+    const type = typeOf(p);
+    body.innerHTML = `<div class="max-w-3xl space-y-6"><form id="f" class="${card} p-6 space-y-4"><h2 class="font-medium">Project settings</h2>
+      <div class="grid sm:grid-cols-2 gap-3"><div><label class="${lbl}">Name</label><input class="${inp}" id="s_name" value="${esc(p.name)}" maxlength="40" required></div><div><label class="${lbl}">Branch</label><input class="${inp}" id="s_branch" value="${esc(p.branch)}"></div></div>
+      <div><label class="${lbl}">Project type</label>${typeSelect(type)}</div>${cmdFields(p, type)}
+      <div class="flex flex-wrap gap-2"><button class="${btn}">Save</button><button type="button" class="${btn2}" id="saveDeploy">Save &amp; redeploy</button></div></form>
+      <div class="${card} p-6 !border-red-500/40"><h2 class="font-medium text-red-500 mb-1">Delete project</h2><p class="text-sm text-zinc-500 mb-4">This removes the project, its files and its address. It cannot be undone.</p><button class="${btnDanger}" id="del">Delete this project</button></div></div>`;
+    bindType();
+    const save = async redeploy => { try { await api('/projects/' + id, { method: 'PATCH', body: { name: $('#s_name').value, branch: $('#s_branch').value.trim(), ...readCmds() } }); toast('Saved'); if (redeploy) { await api(`/projects/${id}/deploy`, { method: 'POST' }); location.hash = `#/project/${id}?tab=logs`; } else projectView(); } catch (e) { toast(e.message, true); } };
+    $('#f').onsubmit = e => { e.preventDefault(); save(false); }; $('#saveDeploy').onclick = () => save(true);
+    $('#del').onclick = async () => { if (!confirm(`Delete "${p.name}" permanently?`)) return; try { await api('/projects/' + id, { method: 'DELETE' }); toast('Project deleted'); location.hash = '#/dashboard'; } catch (e) { toast(e.message, true); } };
+  }
+}
+
+/* ===================== billing + settings ===================== */
+async function billingView() {
+  if (!(await requireAuth())) return;
+  const q = parseHash().q, exp = me.paidUntil || me.trialEndsAt;
+  const row = (a, b) => `<div class="flex justify-between py-3 border-t border-zinc-200 dark:border-zinc-800 first:border-0"><span class="text-zinc-500">${a}</span><span class="font-medium">${b}</span></div>`;
+  appShell(`<div class="max-w-xl mx-auto"><h1 class="text-2xl font-semibold mb-6">Billing</h1>
+    ${q.get('paid') === '1' ? `<div class="${card} p-4 mb-4 !border-emerald-500 text-sm">✅ Payment received. Your projects are coming back online.</div>` : q.get('paid') === '0' ? `<div class="${card} p-4 mb-4 !border-red-500 text-sm">Payment not confirmed yet. If you have paid, refresh in a minute.</div>` : ''}
+    <div class="${card} px-6 py-2">${row('Status', pill(me.status === 'paid' ? 'live' : me.status === 'trial' ? 'building' : 'suspended').replace(/>[^<]*<\/span>$/, `>${esc(me.status)}</span>`))}${row('Days left', me.daysLeft)}${row('Expires', exp ? new Date(exp).toLocaleDateString() : '-')}${row('Plan', `KES ${esc(me.price)} / month`)}${row('Storage', `${fmtB(me.storage.usedBytes)} of ${fmtB(me.storage.quotaBytes)}`)}</div>
+    <button id="pay" class="${btn} w-full !py-3 mt-5">Pay KES ${esc(me.price)} with M-Pesa or card</button><p class="text-xs text-zinc-500 mt-3">Secure payment by Paystack. Each payment adds 30 days on top of what you have left, and switches your projects back on.</p></div>`);
+  $('#pay').onclick = async e => { e.target.disabled = true; try { location.href = (await api('/billing/pay', { method: 'POST' })).url; } catch (err) { toast(err.message, true); e.target.disabled = false; } };
+}
+async function settingsView() {
+  if (!(await requireAuth())) return;
+  const dark = document.documentElement.classList.contains('dark');
+  appShell(`<div class="max-w-xl mx-auto space-y-5"><h1 class="text-2xl font-semibold">Settings</h1>
+    <form id="fn" class="${card} p-6 space-y-3"><h2 class="font-medium">Profile</h2><div><label class="${lbl}">Display name</label><input class="${inp}" id="dn" maxlength="40" value="${esc(me.displayName)}" required></div><div><label class="${lbl}">Email</label><input class="${inp} opacity-60" value="${esc(me.email)}" disabled></div><button class="${btn}">Save</button></form>
+    <div class="${card} p-6"><h2 class="font-medium mb-2">GitHub</h2>${me.github.connected ? `<p class="text-sm text-zinc-500 mb-3">Connected as <b>${esc(me.github.login || '')}</b>.</p><button class="${btn2}" id="gdis">Disconnect</button>` : `<p class="text-sm text-zinc-500 mb-3">Not connected.</p><a class="${btn2}" href="#/new"><i class="fab fa-github"></i> Connect GitHub</a>`}</div>
+    <form id="fp" class="${card} p-6 space-y-3"><h2 class="font-medium">${me.hasPassword ? 'Change password' : 'Set a password'}</h2>${me.hasPassword ? `<input class="${inp}" type="password" id="cp" placeholder="Current password" required autocomplete="current-password">` : '<p class="text-xs text-zinc-500">You signed up with GitHub. Add a password to log in with email as well.</p>'}<input class="${inp}" type="password" id="np" placeholder="New password (at least 8 characters)" minlength="8" required autocomplete="new-password"><input class="${inp}" type="password" id="np2" placeholder="Confirm new password" required autocomplete="new-password"><button class="${btn}">Save password</button></form>
+    <div class="${card} p-6"><h2 class="font-medium mb-3">Appearance</h2><div class="flex gap-2"><button id="tl" class="${btn2} ${dark ? '' : '!border-emerald-500'}">☀️ Light</button><button id="td" class="${btn2} ${dark ? '!border-emerald-500' : ''}">🌙 Dark</button></div></div>
+    <form id="fd" class="${card} p-6 space-y-3 !border-red-500/40"><h2 class="font-medium text-red-500">Delete account</h2><p class="text-sm text-zinc-500">Permanently deletes your account and every project. This cannot be undone.</p><input class="${inp}" type="password" id="dp" placeholder="${me.hasPassword ? 'Confirm with your password' : 'Type your email address to confirm'}" required><button class="${btnDanger}">Delete my account</button></form></div>`);
+  $('#fn').onsubmit = async e => { e.preventDefault(); try { await api('/profile', { method: 'PUT', body: { displayName: $('#dn').value } }); toast('Saved'); await loadMe(); } catch (err) { toast(err.message, true); } };
+  if ($('#gdis')) $('#gdis').onclick = async () => { await api('/github/disconnect', { method: 'POST' }); toast('GitHub disconnected'); settingsView(); };
+  $('#fp').onsubmit = async e => { e.preventDefault(); if ($('#np').value !== $('#np2').value) return toast('Passwords do not match', true); try { await api('/settings/password', { method: 'POST', body: { currentPassword: $('#cp') ? $('#cp').value : '', newPassword: $('#np').value } }); toast('Password saved'); settingsView(); } catch (err) { toast(err.message, true); } };
+  $('#tl').onclick = () => { setTheme(false); settingsView(); }; $('#td').onclick = () => { setTheme(true); settingsView(); };
+  $('#fd').onsubmit = async e => { e.preventDefault(); if (!confirm('Delete your account permanently?')) return; try { await api('/account', { method: 'DELETE', body: { password: $('#dp').value } }); toast('Account deleted'); logout(); } catch (err) { toast(err.message, true); } };
+}
+
+/* ===================== admin ===================== */
+function adminLogout() { atoken = null; sessionStorage.removeItem('mh_admin'); adminView(); }
+async function adminView() {
+  if (!atoken) {
+    const unset = health && health.adminConfigured === false;
+    adminShell(`<div class="max-w-sm mx-auto py-16"><div class="${card} p-8"><h1 class="text-xl font-semibold text-center mb-6">Admin log in</h1>
+      ${unset ? '<p class="mb-4 text-sm text-amber-500">No admin password is set yet. Create one below with your server key.</p>' : ''}
+      <form id="f" class="space-y-3"><input class="${inp}" type="password" id="pw" placeholder="Admin password" required><button class="${btn} w-full">Log in</button></form>
+      <button type="button" class="mt-5 text-xs text-zinc-500 underline" id="showSetup">${unset ? 'Create' : 'First time or forgot the password? Set'} the admin password</button>
+      <form id="setup" class="${unset ? '' : 'hidden'} mt-4 space-y-3 border-t border-zinc-200 dark:border-zinc-800 pt-4">
+        <p class="text-xs text-zinc-500">Server key = the value of <b>JWT_SECRET</b> in your Render environment. It proves you own this server.</p>
+        <input class="${inp}" type="password" id="sk" placeholder="Server key (JWT_SECRET)" required autocomplete="off">
+        <input class="${inp}" type="password" id="np" placeholder="New admin password (at least 8 characters)" minlength="8" required autocomplete="new-password">
+        <button class="${btn} w-full">Save and log in</button></form></div></div>`);
+    $('#f').onsubmit = async e => { e.preventDefault(); try { atoken = (await api('/admin/login', { method: 'POST', body: { password: $('#pw').value } }, null)).token; sessionStorage.setItem('mh_admin', atoken); adminView(); } catch (err) { toast(err.message, true); } };
+    $('#showSetup').onclick = () => $('#setup').classList.toggle('hidden');
+    $('#setup').onsubmit = async e => { e.preventDefault(); try { atoken = (await api('/admin/setup', { method: 'POST', body: { setupKey: $('#sk').value, password: $('#np').value } }, null)).token; sessionStorage.setItem('mh_admin', atoken); toast('Admin password saved'); adminView(); } catch (err) { toast(err.message, true); } };
+    return;
+  }
+  let d;
+  try { d = await api('/admin/overview', {}, atoken); }
+  catch (e) {
+    if (e.status === 401) { atoken = null; sessionStorage.removeItem('mh_admin'); toast('Admin session expired. Please log in again.', true); return adminView(); }
+    adminShell(`<div class="max-w-md mx-auto py-16 text-center"><h1 class="text-xl font-semibold mb-2">Could not load the admin panel</h1><p class="text-sm text-red-500 mb-4">${esc(e.message)}</p><button class="${btn}" onclick="adminView()">Try again</button></div>`); return;
+  }
+  await checkHealth();
+  const s = d.stats, st = d.settings, stat = (a, b) => `<div class="${card} p-4"><div class="text-xs text-zinc-500">${a}</div><div class="text-xl font-semibold mt-1">${b}</div></div>`;
+  const th = 'text-left text-xs text-zinc-500 font-normal py-2 pr-4', td = 'py-2 pr-4 text-sm';
+  const warn = [];
+  if (health && !health.persistentDb) warn.push('The database is a local file. Accounts and projects are lost whenever the server restarts. Set MONGODB_URI.');
+  if (health && !health.githubConfigured) warn.push('GitHub login is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.');
+  if (health && !health.baseDomain) warn.push('BASE_DOMAIN is not set, so sites use /s/name addresses instead of name.yourdomain.');
+  if (health && health.requireVerify && health.mail === 'none') warn.push('Email verification is required but email sending is not configured.');
+  if (health && health.githubConfigured) warn.push('GitHub OAuth callback URL (must match EXACTLY in your GitHub OAuth App): ' + health.githubCallback);
+  if (health && !health.baseUrlSet) warn.push('BASE_URL is not set. The address is detected automatically, but set BASE_URL to your public https address to be safe.');
+  adminShell(`<div class="space-y-8"><h1 class="text-2xl font-semibold">Admin</h1>${warn.map(w => `<div class="${card} px-4 py-3 text-sm text-amber-500 !border-amber-500/50 break-all">⚠ ${esc(w)}</div>`).join('')}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">${stat('Users', s.users)}${stat('Free trial', s.trial)}${stat('Paid', s.paid)}${stat('Expired', s.expired)}${stat('Projects', `${s.live} live / ${s.projects}`)}${stat('Storage used', fmtB(s.usedBytes))}${stat('Blocked', s.blocked)}${stat('Revenue', 'KES ' + s.revenue)}</div>
+    <section class="${card} p-6"><h2 class="font-medium mb-1">Price, trial and storage</h2><p class="text-sm text-zinc-500 mb-4">Changes apply to new payments and sign-ups. Time people already paid for is not affected. Per-user storage can be edited in the table below.</p>
+      <form id="fs" class="grid sm:grid-cols-4 gap-3 items-end"><div><label class="${lbl}">Monthly price (KES)</label><input class="${inp}" type="number" min="10" id="sp" value="${esc(st.price)}" required></div><div><label class="${lbl}">Free trial (days)</label><input class="${inp}" type="number" min="0" max="90" id="sd" value="${esc(st.trialDays)}" required></div><div><label class="${lbl}">Default storage (GB)</label><input class="${inp}" type="number" min="0.1" step="any" id="sg" value="${esc(st.storageGB)}" required></div><button class="${btn}">Save</button>
+        <label class="flex items-center gap-2 text-sm sm:col-span-4"><input type="checkbox" id="sv" ${st.requireVerify ? 'checked' : ''}> Require email verification <span class="text-xs text-zinc-500">(turn on only when email sending works, otherwise nobody can sign up)</span></label></form></section>
+    <section><h2 class="font-medium mb-3">Users</h2><div class="${card} p-4 overflow-x-auto"><table class="w-full"><tr><th class="${th}">Email</th><th class="${th}">Status</th><th class="${th}">Days</th><th class="${th}">Projects</th><th class="${th}">Storage</th><th class="${th}"></th></tr>
+    ${d.users.map(u => `<tr class="border-t border-zinc-200 dark:border-zinc-800"><td class="${td}">${esc(u.email)}${u.github ? ` <span class="text-xs text-zinc-500"><i class="fab fa-github"></i> ${esc(u.github)}</span>` : ''}</td><td class="${td}">${esc(u.status)}</td><td class="${td}">${u.daysLeft}</td><td class="${td}">${u.projects}</td><td class="${td}">${fmtB(u.usedBytes)} / ${fmtB(u.quotaBytes)}</td><td class="${td}"><div class="flex gap-2 flex-wrap">${u.status === 'unverified' ? `<button class="${btn2}" onclick="adm('/users/${u.id}/verify',{})">Verify</button>` : ''}<button class="${btn2}" onclick="editStorage('${u.id}')">Storage</button><button class="${btn2}" onclick="adm('/users/${u.id}/block',{blocked:${!u.blocked}})">${u.blocked ? 'Unblock' : 'Block'}</button><button class="${btn2}" onclick="adm('/users/${u.id}/extend',{days:30})">+30d</button></div></td></tr>`).join('')}</table></div></section>
+    <section><h2 class="font-medium mb-3">Projects</h2><div class="${card} p-4 overflow-x-auto"><table class="w-full"><tr><th class="${th}">Name</th><th class="${th}">Owner</th><th class="${th}">Type</th><th class="${th}">Status</th><th class="${th}">Size</th><th class="${th}"></th></tr>
+    ${d.projects.map(p => `<tr class="border-t border-zinc-200 dark:border-zinc-800"><td class="${td}"><a class="hover:underline text-emerald-500" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a></td><td class="${td}">${esc(p.owner)}</td><td class="${td}">${esc(p.kind)}</td><td class="${td}">${pill(p.status)}</td><td class="${td}">${fmtB(p.sizeBytes)}</td><td class="${td}"><div class="flex gap-2"><button class="${btn2}" onclick="adm('/projects/${p.id}/suspend',{suspended:${p.suspendedBy !== 'admin'}})">${p.suspendedBy === 'admin' ? 'Turn on' : 'Turn off'}</button><button class="${btnDanger}" onclick="if(confirm('Delete this project permanently?'))adm('/projects/${p.id}',null,'DELETE')">Delete</button></div></td></tr>`).join('')}</table></div></section>
+    <section><h2 class="font-medium mb-3">Payments</h2><div class="${card} p-4 overflow-x-auto"><table class="w-full"><tr><th class="${th}">Date</th><th class="${th}">Email</th><th class="${th}">Amount</th><th class="${th}">Channel</th></tr>
+    ${d.payments.map(p => `<tr class="border-t border-zinc-200 dark:border-zinc-800"><td class="${td}">${new Date(p.at).toLocaleString()}</td><td class="${td}">${esc(p.email)}</td><td class="${td}">KES ${esc(p.amount)}</td><td class="${td}">${esc(p.channel)}</td></tr>`).join('') || `<tr><td class="${td} text-zinc-500" colspan="4">No payments yet</td></tr>`}</table></div></section></div>`);
+  $('#fs').onsubmit = async e => { e.preventDefault(); try { const r = await api('/admin/settings', { method: 'PUT', body: { price: $('#sp').value, trialDays: $('#sd').value, storageGB: $('#sg').value, requireVerify: $('#sv').checked } }, atoken); cfg = { ...cfg, ...r }; toast('Saved'); } catch (err) { toast(err.message, true); } };
+}
+async function adm(path, body, method) { try { await api('/admin' + path, { method: method || 'POST', body }, atoken); toast('Done'); adminView(); } catch (e) { toast(e.message, true); } }
+function editStorage(id) { const v = prompt('Storage for this user in GB (leave empty to use the default):'); if (v === null) return; adm(`/users/${id}/storage`, { gb: v.trim() === '' ? null : Number(v) }); }
+
+/* ===================== router ===================== */
+function route() {
+  stopAll(); $('#modal').innerHTML = '';
+  const { path, parts } = parseHash(); window.scrollTo(0, 0);
+  if (token && (path === '#/login' || path === '#/signup')) { location.hash = '#/dashboard'; return; }
+  const R = { '': landing, login: () => authView('login'), signup: () => authView('signup'), verify: verifyView, oauth: oauthView, dashboard: dashboardView, new: () => parts[1] === 'configure' ? configureView() : newView(), project: () => projectView(), billing: billingView, settings: settingsView, admin: adminView };
+  (R[parts[0] || ''] || landing)();
+}
+addEventListener('hashchange', route);
+Promise.all([loadCfg(), checkHealth()]).finally(route);
+setInterval(checkHealth, 60000);
+</script>
+</body>
+</html>
