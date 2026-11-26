@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MtaaniHost — Deploy from GitHub in seconds</title>
+<title>ADEZ NEXUS HOSTING — Deploy from GitHub in seconds</title>
 <meta name="description" content="Host your website, web app or bot from GitHub. Free for 14 days, then KES 70 per month. Pay with M-Pesa.">
 <script>
   tailwind = { config: { darkMode: 'class' } };
@@ -29,7 +29,7 @@
 <div id="modal"></div>
 <script>
 /* ===================== state & helpers ===================== */
-// Same origin when served by the MtaaniHost server (recommended). Set window.MH_API only if the page is hosted elsewhere.
+// Same origin when served by the ADEZ NEXUS HOSTING server (recommended). Set window.MH_API only if the page is hosted elsewhere.
 const API_BASE = typeof window.MH_API === 'string' ? window.MH_API : '';
 let token = localStorage.getItem('mh_token'), atoken = sessionStorage.getItem('mh_admin');
 let me = null, health = null, pollT = null, logCtl = null, humanTok = '', cfToken = '';
@@ -113,11 +113,11 @@ function headerHtml(mode) {
     right = `${themeBtn}${token ? `<a class="${btn}" href="#/dashboard">Dashboard</a>` : `<a class="${btn2}" href="#/login">Log in</a><a class="${btn}" href="#/signup">Sign up</a>`}`;
   }
   return `<header class="sticky top-0 z-40 backdrop-blur border-b border-zinc-200 dark:border-zinc-900 bg-white/80 dark:bg-black/80"><div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
-    <div class="flex items-center gap-4"><a href="#/" class="flex items-center gap-2 font-semibold">${logo}<span>MtaaniHost</span></a>${nav}</div><div class="flex items-center gap-2">${right}</div></div></header>`;
+    <div class="flex items-center gap-4"><a href="#/" class="flex items-center gap-2 font-semibold">${logo}<span>ADEZ NEXUS HOSTING</span></a>${nav}</div><div class="flex items-center gap-2">${right}</div></div></header>`;
 }
 function footerHtml() {
   return `<footer class="border-t border-zinc-200 dark:border-zinc-900 mt-16"><div class="max-w-6xl mx-auto px-4 py-8 flex flex-col sm:flex-row gap-3 items-center justify-between text-xs text-zinc-500">
-    <div>© ${new Date().getFullYear()} MtaaniHost · Nairobi, Kenya</div><div><span id="apiStatus">${statusHtml()}</span></div>
+    <div>© ${new Date().getFullYear()} ADEZ NEXUS HOSTING · Nairobi, Kenya</div><div><span id="apiStatus">${statusHtml()}</span></div>
     <div class="flex gap-4"><a class="hover:text-emerald-500" href="#/billing">Billing</a><a class="hover:text-emerald-500 cursor-pointer" onclick="goTo('faq')">FAQ</a><a class="hover:text-emerald-500" href="#/admin">Admin</a></div></div></footer>`;
 }
 const publicShell = inner => { $('#root').innerHTML = `${headerHtml('public')}<main class="flex-1 fadein">${inner}</main>${footerHtml()}`; };
@@ -195,7 +195,7 @@ async function setupHuman() {
 }
 function authView(mode) {
   const su = mode === 'signup', q = parseHash().q;
-  publicShell(`<div class="max-w-sm mx-auto px-4 py-16"><div class="text-center mb-8"><div class="flex justify-center mb-3">${logo}</div><h1 class="text-2xl font-semibold">${su ? 'Create your account' : 'Log in to MtaaniHost'}</h1>${su ? `<p class="text-sm text-zinc-500 mt-1">${esc(cfg.trialDays)} days free. No card needed.</p>` : ''}</div>
+  publicShell(`<div class="max-w-sm mx-auto px-4 py-16"><div class="text-center mb-8"><div class="flex justify-center mb-3">${logo}</div><h1 class="text-2xl font-semibold">${su ? 'Create your account' : 'Log in to ADEZ NEXUS HOSTING'}</h1>${su ? `<p class="text-sm text-zinc-500 mt-1">${esc(cfg.trialDays)} days free. No card needed.</p>` : ''}</div>
     ${q.get('verified') ? '<p class="mb-4 text-sm text-emerald-500 text-center">Email verified. You can log in now.</p>' : ''}
     ${cfg.github ? `<a href="${API_BASE}/api/auth/github" class="${btn} w-full !py-2.5 mb-4"><i class="fab fa-github"></i> Continue with GitHub</a><div class="flex items-center gap-3 text-xs text-zinc-500 mb-4"><div class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></div>or<div class="h-px flex-1 bg-zinc-200 dark:bg-zinc-800"></div></div>` : ''}
     <form id="f" class="space-y-3"><div><label class="${lbl}">Email</label><input class="${inp}" type="email" id="em" required autocomplete="email" placeholder="you@gmail.com"></div>
@@ -271,7 +271,7 @@ async function newView() {
   };
   const box = $('#gh');
   if (!connected) {
-    box.innerHTML = `<div class="text-center py-6"><div class="text-4xl mb-3"><i class="fab fa-github"></i></div><h2 class="font-semibold mb-1">Connect your GitHub</h2><p class="text-sm text-zinc-500 max-w-md mx-auto mb-5">You will be sent to GitHub to authorize MtaaniHost. When you accept you come straight back here and your repositories appear. We need repository access so you can also deploy private projects.</p>${cfg.github ? `<button class="${btn}" id="conn"><i class="fab fa-github"></i> Connect GitHub</button>` : '<p class="text-sm text-amber-500">GitHub connection is not set up on this server yet. You can still use the URL option below.</p>'}</div>`;
+    box.innerHTML = `<div class="text-center py-6"><div class="text-4xl mb-3"><i class="fab fa-github"></i></div><h2 class="font-semibold mb-1">Connect your GitHub</h2><p class="text-sm text-zinc-500 max-w-md mx-auto mb-5">You will be sent to GitHub to authorize ADEZ NEXUS HOSTING. When you accept you come straight back here and your repositories appear. We need repository access so you can also deploy private projects.</p>${cfg.github ? `<button class="${btn}" id="conn"><i class="fab fa-github"></i> Connect GitHub</button>` : '<p class="text-sm text-amber-500">GitHub connection is not set up on this server yet. You can still use the URL option below.</p>'}</div>`;
     if ($('#conn')) $('#conn').onclick = async () => { try { location.href = (await api('/github/connect', { method: 'POST' })).url; } catch (e) { toast(e.message, true); } };
     return;
   }

@@ -76,7 +76,7 @@ function limiter(max, windowMs) {
   };
 }
 setInterval(() => { for (const [k, h] of hits) if (now() > h.r) hits.delete(k); }, 600000).unref();
-const pageHtml = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><body style="font-family:system-ui,sans-serif;background:#000;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center"><div style="padding:24px"><h1 style="font-weight:600">${esc(title)}</h1><p style="color:#a1a1aa">${msg}</p><p><a style="color:#34d399" href="${esc(BASE_URL)}">MtaaniHost</a></p></div>`;
+const pageHtml = (title, msg) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><body style="font-family:system-ui,sans-serif;background:#000;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center"><div style="padding:24px"><h1 style="font-weight:600">${esc(title)}</h1><p style="color:#a1a1aa">${msg}</p><p><a style="color:#34d399" href="${esc(BASE_URL)}">ADEZ NEXUS HOSTING</a></p></div>`;
 
 /* ---------- email (verification codes) ---------- */
 // Render FREE blocks SMTP ports, so use BREVO_API_KEY (HTTPS) there. Gmail SMTP works on paid plans.
@@ -92,14 +92,14 @@ const requireVerify = () => db.settings.requireVerify === undefined ? ENV_VERIFY
 async function sendEmail(to, subject, html) {
   if (BREVO_KEY) {
     if (!MAIL_FROM) throw new Error('MAIL_FROM is not set');
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': BREVO_KEY, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ sender: { name: 'MtaaniHost', email: MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html }) });
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': BREVO_KEY, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ sender: { name: 'ADEZ NEXUS HOSTING', email: MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html }) });
     if (!r.ok) throw new Error('Brevo error ' + r.status + ': ' + (await r.text()).slice(0, 200));
     return;
   }
-  if (smtp) return smtp.sendMail({ from: `"MtaaniHost" <${MAIL_FROM}>`, to, subject, html });
+  if (smtp) return smtp.sendMail({ from: `"ADEZ NEXUS HOSTING" <${MAIL_FROM}>`, to, subject, html });
   throw new Error('Email is not configured');
 }
-const sendCode = (email, code) => sendEmail(email, `Your MtaaniHost code: ${code}`, `<div style="font-family:sans-serif"><h2>Welcome to MtaaniHost</h2><p>Your verification code:</p><p style="font-size:32px;letter-spacing:6px;font-weight:bold">${code}</p><p>It expires in 15 minutes.</p></div>`);
+const sendCode = (email, code) => sendEmail(email, `Your ADEZ NEXUS HOSTING code: ${code}`, `<div style="font-family:sans-serif"><h2>Welcome to ADEZ NEXUS HOSTING</h2><p>Your verification code:</p><p style="font-size:32px;letter-spacing:6px;font-weight:bold">${code}</p><p>It expires in 15 minutes.</p></div>`);
 
 /* ---------- "verify you are human" ---------- */
 const usedHuman = new Map();
@@ -122,7 +122,7 @@ const HUMAN_FAIL = { error: 'Human check failed. Please try again.' };
 /* ---------- GitHub helpers ---------- */
 const tokenOf = u => u && u.ghToken ? E.decrypt(u.ghToken) : null;
 async function ghApi(token, p) {
-  const r = await fetch('https://api.github.com' + p, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'MtaaniHost', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: 'Bearer ' + token } : {}) } });
+  const r = await fetch('https://api.github.com' + p, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ADEZ NEXUS HOSTING', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: 'Bearer ' + token } : {}) } });
   let json = null; try { json = await r.json(); } catch {}
   return { ok: r.ok, status: r.status, json };
 }
@@ -292,7 +292,7 @@ app.get('/api/github/callback', async (req, res) => {
       const u = db.users.find(x => x.id === st.uid);
       if (!u) return fail('Please log in first.');
       const other = db.users.find(x => x.githubId === me.json.id && x.id !== u.id);
-      if (other) return res.redirect('/#/new?error=' + encodeURIComponent('That GitHub account is already linked to another MtaaniHost account.'));
+      if (other) return res.redirect('/#/new?error=' + encodeURIComponent('That GitHub account is already linked to another ADEZ NEXUS HOSTING account.'));
       u.githubId = me.json.id; u.githubLogin = me.json.login; u.ghToken = E.encrypt(access); save();
       return res.redirect('/#/new?connected=1');
     }
@@ -581,7 +581,7 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.log('Database: ' + (process.env.MONGODB_URI ? 'MongoDB' : 'local JSON file (NOT persistent on Render free - set MONGODB_URI)'));
   console.log('Mail: ' + mailMode + ' | email verification: ' + (requireVerify() ? 'REQUIRED' : 'off') + ' | human check: ' + (TURNSTILE_ON ? 'Turnstile' : 'math') + ' | GitHub OAuth: ' + (GH_ID && GH_SECRET ? 'configured' : 'NOT configured') + ' | static storage: ' + E.storeMode());
   if (ADMIN_ENV) console.log('Admin password: set via ADMIN_PASSWORD'); else console.warn('ADMIN PASSWORD (temporary, changes on every restart): ' + ADMIN_PASSWORD + '  <- set ADMIN_PASSWORD to choose your own');
-  const server = app.listen(PORT, () => { console.log('MtaaniHost v2 listening on ' + PORT); E.boot(); });
+  const server = app.listen(PORT, () => { console.log('ADEZ NEXUS HOSTING v2 listening on ' + PORT); E.boot(); });
   setInterval(E.enforce, 60000).unref();
   const bye = async () => { server.close(); await close(); process.exit(0); };
   process.on('SIGTERM', bye); process.on('SIGINT', bye);

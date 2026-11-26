@@ -1,6 +1,6 @@
-# MtaaniHost
+# ADEZ NEXUS HOSTING
 
-MtaaniHost is a Node.js hosting platform for managing user accounts, hosted projects, deployments, storage, billing, and custom subdomains. The repository includes the Express application, static frontend, runtime/hosting worker, database helpers, and deployment configuration.
+ADEZ NEXUS HOSTING is a Node.js hosting platform for managing user accounts, hosted projects, deployments, storage, billing, and custom subdomains. The repository includes the Express application, static frontend, runtime/hosting worker, database helpers, and deployment configuration.
 
 ## Requirements
 

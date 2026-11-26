@@ -92,16 +92,16 @@ const mailMode = BREVO_KEY? 'brevo' : smtp? 'smtp' : 'none';
 
 async function sendEmail(to, subject, html) {
   if (BREVO_KEY) {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': BREVO_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ sender: { name: 'MtaaniHost', email: MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html }) });
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { 'api-key': BREVO_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ sender: { name: 'ADEZ NEXUS HOSTING', email: MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html }) });
     if (!r.ok) throw new Error('Brevo error ' + r.status);
     return;
   }
-  if (smtp) { await smtp.sendMail({ from: `"MtaaniHost" <${MAIL_FROM}>`, to, subject, html }); return; }
+  if (smtp) { await smtp.sendMail({ from: `"ADEZ NEXUS HOSTING" <${MAIL_FROM}>`, to, subject, html }); return; }
   throw new Error('Email not configured');
 }
 async function sendCode(email, code) {
   if (mailMode === 'none' && DEV_MODE) { console.log(`[DEV] code for ${email}: ${code}`); return; }
-  await sendEmail(email, `Your MtaaniHost code: ${code}`, `<p style="font-size:32px;letter-spacing:6px;font-weight:bold">${code}</p>`);
+  await sendEmail(email, `Your ADEZ NEXUS HOSTING code: ${code}`, `<p style="font-size:32px;letter-spacing:6px;font-weight:bold">${code}</p>`);
 }
 
 function auth(req, res, next) {
@@ -376,6 +376,6 @@ async function syncSites() {}
 app.use(express.static(path.join(__dirname, 'public')));
 app.use((req, res) => res.status(404).send('Not found'));
 app.listen(PORT, () => {
-  console.log('MtaaniHost running on ' + PORT + ' GitHub:' + (GITHUB_CLIENT_ID? 'ON' : 'OFF'));
+  console.log('ADEZ NEXUS HOSTING running on ' + PORT + ' GitHub:' + (GITHUB_CLIENT_ID? 'ON' : 'OFF'));
   db.projects.filter(p => p.type === 'bot' && p.desired === 'running').forEach(p => { const o = db.users.find(u => u.id === p.userId); if (o && isActive(o)) runner.start(p); });
 });
