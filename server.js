@@ -583,6 +583,13 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   if (ADMIN_ENV) console.log('Admin password: set via ADMIN_PASSWORD'); else console.warn('ADMIN PASSWORD (temporary, changes on every restart): ' + ADMIN_PASSWORD + '  <- set ADMIN_PASSWORD to choose your own');
   const server = app.listen(PORT, () => { console.log('ADEZ NEXUS HOSTING v2 listening on ' + PORT); E.boot(); });
   setInterval(E.enforce, 60000).unref();
+  // Keep-alive: Render free sleeps after ~15 min without inbound traffic. A request to our own
+  // public URL goes through Render's router, so it counts as traffic. Set KEEP_ALIVE=0 to disable.
+  const KEEP_URL = (process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL || '').replace(/\/+$/, '');
+  if (KEEP_URL && process.env.KEEP_ALIVE !== '0') {
+    setInterval(() => { fetch(KEEP_URL + '/api/health').catch(() => {}); }, 10 * 60 * 1000).unref();
+    console.log('Keep-alive: pinging ' + KEEP_URL + '/api/health every 10 min');
+  }
   const bye = async () => { server.close(); await close(); process.exit(0); };
   process.on('SIGTERM', bye); process.on('SIGINT', bye);
 })();
