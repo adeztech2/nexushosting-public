@@ -12,8 +12,9 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) { console.error('Set JWT_SECRET in the environment'); process.exit(1); }
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-// Public address of this server. If BASE_URL is not set it is detected from the request, so OAuth/Paystack callbacks never point at localhost.
-const baseOf = req => process.env.BASE_URL ? BASE_URL : `${req.protocol}://${req.get('host')}`;
+// Public address of this server. Prefer an explicit BASE_URL, then forwarded proxy headers,
+// so OAuth/Paystack callbacks never point at the internal listener address.
+const baseOf = req => process.env.BASE_URL ? BASE_URL : `${req.get('x-forwarded-proto') || req.protocol}://${req.get('x-forwarded-host') || req.get('host')}`;
 const BASE_DOMAIN = (process.env.BASE_DOMAIN || '').toLowerCase().replace(/^\./, '');
 const ADMIN_ENV = (process.env.ADMIN_PASSWORD || '').trim();
 const ADMIN_PASSWORD = ADMIN_ENV || crypto.randomBytes(9).toString('base64url'); // temporary one is printed in the logs if you forget to set it
