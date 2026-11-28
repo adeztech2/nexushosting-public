@@ -336,6 +336,66 @@ app.get('/api/github/detect', auth, async (req, res) => {
   res.json({ repo: info.json.full_name, branch, private: info.json.private, ...E.detectConfig(pkg, names) });
 });
 
+/* ---------- bot marketplace ---------- */
+const BOT_FRAMEWORKS = ['Node.js', 'Baileys / WhatsApp', 'Telegraf / Telegram', 'discord.js / Discord', 'Other'];
+function parseEnvNames(text) {
+  return String(text || '').split(/\r?\n/).map(line => line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=.*)?$/)).filter(Boolean).map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 100);
+}
+function templateView(t, admin = false) {
+  return { id: t.id, name: t.name, description: t.description, repo: t.repo, branch: t.branch, framework: t.framework, runtime: t.runtime, imageUrl: t.imageUrl || null, price: t.price, published: !!t.published, env: (t.env || []).map(v => ({ key: v.key, required: !!v.required, secret: !!v.secret, description: v.description || '', order: v.order || 0 })), createdAt: t.createdAt, updatedAt: t.updatedAt, deployments: t.deployments || 0, ...(admin ? { repositoryPrivate: !!t.repositoryPrivate } : {}) };
+}
+function botView(b) {
+  const t = db.botTemplates.find(x => x.id === b.templateId);
+  const p = db.projects.find(x => x.id === b.projectId);
+  return { id: b.id, templateId: b.templateId, projectId: b.projectId, name: t ? t.name : 'Bot', imageUrl: t?.imageUrl || null, framework: t?.framework || 'Node.js', status: b.status, runtimeStatus: p ? (p.desired === 'stopped' ? 'stopped' : p.status) : 'unknown', deploymentId: b.id, createdAt: b.createdAt, updatedAt: b.updatedAt, lastError: p?.lastError || null, project: p ? projectView(p) : null };
+}
+function cleanBotEnv(list, defs) {
+  if (!Array.isArray(list)) throw bad('Invalid environment variables');
+  const allowed = new Map((defs || []).map(v => [v.key, v]));
+  return cleanEnv(list.map(v => ({ key: v.key, value: v.value })), []).filter(v => allowed.has(v.key));
+}
+async function inspectRepository(token, repo, branch) {
+  if (!REPO_RE.test(repo)) throw bad('Use the format owner/repository');
+  const info = await ghApi(token, `/repos/${repo}`);
+  if (info.status === 404) throw new HttpError(404, 'Repository not found or not publicly accessible.');
+  if (!info.ok) throw new HttpError(502, 'GitHub error ' + info.status);
+  const selected = String(branch || info.json.default_branch || 'main');
+  const list = await ghApi(token, `/repos/${repo}/git/trees/${encodeURIComponent(selected)}?recursive=1`);
+  if (!list.ok) throw new HttpError(404, `Branch "${selected}" was not found.`);
+  const names = (list.json.tree || []).filter(x => x.type === 'blob').map(x => x.path);
+  let pkg = null, readme = '', envFile = null;
+  const getFile = async name => { const f = await ghApi(token, `/repos/${repo}/contents/${name}?ref=${encodeURIComponent(selected)}`); if (!f.ok || !f.json?.content) return ''; return Buffer.from(f.json.content, 'base64').toString('utf8'); };
+  if (names.includes('package.json')) { try { pkg = JSON.parse(await getFile('package.json')); } catch {} }
+  for (const candidate of ['.env.example', '.env.sample', 'example.env', '.env.template', '.env']) { if (names.includes(candidate)) { envFile = candidate; break; } }
+  if (names.includes('README.md')) readme = (await getFile('README.md')).slice(0, 12000);
+  const detected = E.detectConfig(pkg, names);
+  return { repo: info.json.full_name, branch: selected, private: !!info.json.private, description: info.json.description || '', language: info.json.language || '', packageName: pkg?.name || '', scripts: pkg?.scripts || {}, dependencies: Object.keys({ ...(pkg?.dependencies || {}), ...(pkg?.devDependencies || {}) }).slice(0, 100), framework: detected.framework || 'Node.js', envFile, envNames: envFile ? parseEnvNames(await getFile(envFile)) : [], readme: readme.slice(0, 4000), ...detected };
+}
+app.get('/api/marketplace', (req, res) => res.json(db.botTemplates.filter(t => t.published).map(t => templateView(t))));
+app.get('/api/marketplace/:id', (req, res) => { const t = db.botTemplates.find(x => x.id === req.params.id && x.published); if (!t) throw new HttpError(404, 'Bot template not found'); res.json(templateView(t)); });
+app.get('/api/admin/bots', adminAuth, (req, res) => res.json(db.botTemplates.map(t => templateView(t, true))));
+app.post('/api/admin/bots/inspect', adminAuth, async (req, res) => res.json(await inspectRepository(null, String(req.body.repo || '').trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, ''), req.body.branch)));
+app.post('/api/admin/bots', adminAuth, (req, res) => {
+  const b = req.body || {}, repo = String(b.repo || '').trim();
+  if (!REPO_RE.test(repo)) throw bad('Use the format owner/repository');
+  const name = String(b.name || '').trim().slice(0, 80), price = Math.round(Number(b.price));
+  if (!name) throw bad('Bot name is required'); if (!Number.isFinite(price) || price < 0) throw bad('Price must be a valid KES amount');
+  const t = { id: uid(), name, description: String(b.description || '').trim().slice(0, 1000), repo, branch: String(b.branch || 'main').trim(), framework: String(b.framework || 'Node.js').slice(0, 80), runtime: String(b.runtime || 'Node.js 18+').slice(0, 40), imageUrl: String(b.imageUrl || '').trim().slice(0, 500) || null, price, published: !!b.published, env: Array.isArray(b.env) ? b.env.map((v, i) => ({ key: String(v.key || '').trim(), required: !!v.required, secret: !!v.secret, description: String(v.description || '').slice(0, 200), order: Number(v.order) || i })).filter(v => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v.key)) : [], createdAt: now(), updatedAt: now(), deployments: 0 };
+  db.botTemplates.push(t); save(); res.status(201).json(templateView(t, true));
+});
+app.patch('/api/admin/bots/:id', adminAuth, (req, res) => { const t = db.botTemplates.find(x => x.id === req.params.id); if (!t) throw new HttpError(404, 'Bot template not found'); const b = req.body || {}; for (const k of ['name','description','repo','branch','framework','runtime']) if (b[k] !== undefined) t[k] = String(b[k]).trim().slice(0, k === 'description' ? 1000 : 500); if (b.imageUrl !== undefined) t.imageUrl = String(b.imageUrl || '').trim().slice(0, 500) || null; if (b.price !== undefined) t.price = Math.max(0, Math.round(Number(b.price))); if (b.published !== undefined) t.published = !!b.published; if (Array.isArray(b.env)) t.env = b.env.map((v, i) => ({ key: String(v.key || '').trim(), required: !!v.required, secret: !!v.secret, description: String(v.description || '').slice(0, 200), order: Number(v.order) || i })).filter(v => /^[A-Za-z_][A-Za-z0-9_]*$/.test(v.key)); t.updatedAt = now(); save(); res.json(templateView(t, true)); });
+app.delete('/api/admin/bots/:id', adminAuth, (req, res) => { const t = db.botTemplates.find(x => x.id === req.params.id); if (!t) throw new HttpError(404, 'Bot template not found'); if (db.botDeployments.some(x => x.templateId === t.id)) throw bad('Cannot delete a template with deployments; unpublish it instead.'); db.botTemplates = db.botTemplates.filter(x => x.id !== t.id); save(); res.json({ ok: true }); });
+app.get('/api/bots', auth, (req, res) => res.json(db.botDeployments.filter(x => x.userId === req.user.id).map(botView)));
+app.post('/api/bots/:id/deploy', auth, (req, res) => {
+  const t = db.botTemplates.find(x => x.id === req.params.id && x.published); if (!t) throw new HttpError(404, 'Bot template not found');
+  canDeploy(req.user); const vars = cleanBotEnv(req.body.env || [], t.env); const missing = (t.env || []).filter(v => v.required && !vars.find(x => x.key === v.key && x.value)); if (missing.length) throw bad('Missing required variables: ' + missing.map(v => v.key).join(', '));
+  const p = { id: uid(), userId: req.user.id, name: t.name, slug: slugify(t.name), kind: 'service', exposeWeb: false, repo: t.repo, branch: t.branch, framework: t.framework, installCmd: 'npm install', buildCmd: '', startCmd: 'npm start', outputDir: '', env: cleanEnv(vars, []), status: 'queued', desired: 'running', createdAt: now(), botTemplateId: t.id };
+  db.projects.push(p); const b = { id: uid(), userId: req.user.id, templateId: t.id, projectId: p.id, status: 'queued', createdAt: now(), updatedAt: now(), envRef: E.encrypt(JSON.stringify(vars)), paymentReference: [...db.payments].reverse().find(x => x.userId === req.user.id)?.reference || null }; db.botDeployments.push(b); t.deployments = (t.deployments || 0) + 1; save(); E.enqueueDeploy(p); res.status(201).json(botView(b));
+});
+app.get('/api/bots/:id', auth, (req, res) => { const b = db.botDeployments.find(x => x.id === req.params.id && x.userId === req.user.id); if (!b) throw new HttpError(404, 'Bot deployment not found'); res.json(botView(b)); });
+app.post('/api/bots/:id/:action', auth, (req, res) => { const b = db.botDeployments.find(x => x.id === req.params.id && x.userId === req.user.id); if (!b) throw new HttpError(404, 'Bot deployment not found'); const p = db.projects.find(x => x.id === b.projectId); if (!p) throw new HttpError(404, 'Runtime not found'); if (req.params.action === 'stop') { p.desired = 'stopped'; E.stopService(p.id); E.setStatus(p, 'stopped'); } else if (req.params.action === 'start' || req.params.action === 'restart') { canDeploy(req.user); p.desired = 'running'; if (req.params.action === 'restart') E.stopService(p.id); E.resumeProject(p); } else if (req.params.action === 'redeploy') { canDeploy(req.user); E.enqueueDeploy(p); } else throw bad('Unsupported bot action'); b.updatedAt = now(); save(); res.json(botView(b)); });
+app.get('/api/admin/bot-deployments', adminAuth, (req, res) => res.json(db.botDeployments.map(b => ({ ...botView(b), customer: db.users.find(u => u.id === b.userId)?.email || 'Unknown' }))));
+
 /* ---------- projects ---------- */
 function projectView(p) {
   const owner = db.users.find(u => u.id === p.userId), active = isActive(owner) && !p.adminSuspended;
@@ -523,7 +583,7 @@ app.get('/api/admin/overview', adminAuth, (req, res) => {
   const c = s => users.filter(u => u.status === s).length;
   res.json({
     settings: { price: E.getPrice(), trialDays: E.getTrialDays(), storageGB: E.getStorageGB(), requireVerify: requireVerify() },
-    stats: { users: users.length, trial: c('trial'), paid: c('paid'), expired: c('expired'), blocked: c('blocked'), projects: projects.length, live: projects.filter(p => p.status === 'live').length, usedBytes: users.reduce((s, u) => s + u.usedBytes, 0), revenue: db.payments.reduce((s, p) => s + p.amount, 0) },
+    stats: { users: users.length, trial: c('trial'), paid: c('paid'), expired: c('expired'), blocked: c('blocked'), projects: projects.length, live: projects.filter(p => p.status === 'live').length, bots: db.botDeployments.length, activeBots: db.botDeployments.filter(b => ['queued','building','live'].includes(db.projects.find(p => p.id === b.projectId)?.status)).length, botTemplates: db.botTemplates.length, usedBytes: users.reduce((s, u) => s + u.usedBytes, 0), revenue: db.payments.reduce((s, p) => s + p.amount, 0) },
     users, projects, payments: [...db.payments].reverse().slice(0, 200)
   });
 });

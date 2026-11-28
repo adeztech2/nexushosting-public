@@ -2,7 +2,7 @@
 
 ## Implementation approach
 
-Keep the existing Express server, API routes, authentication, database helpers, deployment engine, GitHub OAuth, Paystack flow, SSE logs, admin controls, and worker configuration unchanged. Redesign the existing single-page frontend in `public/index.html` in place by replacing the visual system, shared layout helpers, landing page composition, branding, cards, inputs, buttons, and responsive behavior while retaining the current hash router and all API calls.
+Keep the existing Express server, API routes, authentication, database helpers, deployment engine, GitHub OAuth, Paystack flow, SSE logs, admin APIs, and worker configuration intact. Extend the database layer with bot templates and ownership-scoped bot deployments, inspect public GitHub repositories for package metadata and safe environment-variable names, and reuse the existing Node.js service runner for configured bot deployments. Redesign the existing single-page frontend in `public/index.html` in place while retaining the current hash router and project-hosting API behavior.
 
 Add the selected transparent logo asset at `public/adez-nexus-hosting-logo.png`, use it in the favicon, navigation, authentication, loading, dashboard, and landing surfaces, and use ADEZ TECH as the parent-brand eyebrow. Technical identifiers such as existing API paths, storage domains, database names, and worker resource names remain unchanged so existing deployments and integrations are not disrupted.
 
@@ -23,17 +23,17 @@ Add the selected transparent logo asset at `public/adez-nexus-hosting-logo.png`,
 - **Emerald Infrastructure** (0.58): premium dark SaaS with luminous green infrastructure motifs, glass cards, and confident editorial spacing.
 - **Carbon Grid** (0.04): strict monochrome technical grid with restrained green highlights.
 
-### Chosen style: Emerald Infrastructure
+### Chosen style: Electric Blue Infrastructure
 
-**Design Movement:** premium dark developer SaaS influenced by Vercel, Linear, and modern infrastructure control planes, but with a distinctly emerald ADEZ TECH signature.
+**Design Movement:** premium dark developer SaaS influenced by Vercel, Linear, and modern infrastructure control planes, with a distinctly electric-blue ADEZ TECH signature.
 
-**Core Principles:** infrastructure-first clarity; luminous green hierarchy; generous editorial spacing; dense information only where an operator needs it.
+**Core Principles:** infrastructure-first clarity; electric-blue action hierarchy; generous editorial spacing; dense information only where an operator needs it.
 
-**Color Philosophy:** `#050505` gives the platform a high-trust command-center base; `#171717` and the `#0D1915 → #171D1A` card gradient create depth; `#6EE7B7` and `#10B981` signal healthy systems and action; `#9CA3AF` keeps supporting information calm; `#262626` keeps boundaries precise without visual noise.
+**Color Philosophy:** `#050B18` gives the platform a high-trust command-center base; `#101C32` and the `#0A1730 → #122544` card gradient create depth; `#1677FF` and `#00D5FF` signal action and connectivity; `#91A4C2` keeps supporting information calm; `#203451` keeps boundaries precise without visual noise.
 
 **Layout Paradigm:** asymmetrical editorial landing page with a left-aligned headline, a floating deployment telemetry panel, and modular cards; authenticated views use a wide operator canvas with clear content rails instead of generic centered forms.
 
-**Signature Elements:** emerald telemetry dots; soft radial infrastructure glows; dark glass cards with hairline borders; the three-node ADEZ Nexus mark.
+**Signature Elements:** cyan telemetry dots; soft radial infrastructure glows; dark glass cards with hairline borders; the three-node ADEZ Nexus mark.
 
 **Interaction Philosophy:** actions should feel immediate and operational; primary actions glow subtly on hover, cards lift by a few pixels, status indicators pulse only for live/queued work, and destructive actions remain visually separated.
 
@@ -41,10 +41,10 @@ Add the selected transparent logo asset at `public/adez-nexus-hosting-logo.png`,
 
 **Typography System:** system UI stack for reliability and fast rendering; bold condensed-feeling display hierarchy through tight tracking and large line-height contrast; monospace only for URLs, commands, environment variables, and logs.
 
-**Brand Essence:** ADEZ NEXUS HOSTING is the reliable launchpad for Kenyan builders and teams who want to ship from GitHub without managing servers. Personality: precise, optimistic, capable.
+**Brand Essence:** ADEZ NEXUS HOSTING is the reliable launchpad for Kenyan builders and teams who want to ship websites, applications, and bots from GitHub without managing servers. Personality: precise, optimistic, capable.
 
 **Brand Voice:** confident and operational, never inflated. Example lines: “Ship without the server room.” and “Your next deployment deserves a cleaner runway.”
 
 **Wordmark & Logo:** use the supplied three-node Nexus mark as the scalable symbol; pair it with the exact ADEZ NEXUS HOSTING wordmark and a small ADEZ TECH parent-brand eyebrow.
 
-**Signature Brand Color:** electric emerald `#10B981`, softened by mint `#6EE7B7` for highlights.
+**Signature Brand Color:** electric blue `#1677FF`, paired with cyan `#00D5FF` for highlights.

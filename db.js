@@ -7,9 +7,9 @@ const path = require('path');
 const DATA = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 fs.mkdirSync(DATA, { recursive: true });
 const FILE = path.join(DATA, 'db.json');
-const COLS = ['users', 'projects', 'payments']; // every document has a unique string "id"
+const COLS = ['users', 'projects', 'payments', 'botTemplates', 'botDeployments']; // every document has a unique string "id"
 
-const db = { users: [], projects: [], payments: [], settings: {}, pending: {} };
+const db = { users: [], projects: [], payments: [], botTemplates: [], botDeployments: [], settings: {}, pending: {} };
 let mode = 'json', cols = {}, hashes = {}, kvHash = {}, timer = null, flushing = null, again = false, client = null;
 
 async function init() {
