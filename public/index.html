@@ -518,7 +518,7 @@ function route() {
   stopAll(); $('#modal').innerHTML = '';
   const { path, parts } = parseHash(); window.scrollTo(0, 0);
   if (token && (path === '#/login' || path === '#/signup')) { location.hash = '#/dashboard'; return; }
-  const R = { '': landing, login: () => authView('login'), signup: () => authView('signup'), verify: verifyView, oauth: oauthView, dashboard: dashboardView, new: () => parts[1] === 'configure' ? configureView() : newView(), project: () => projectView(), billing: billingView, settings: settingsView, marketplace: () => parts[1] ? botDetailsView() : marketplaceView(), deploy: () => parts[1] === 'bot' ? botDeployView() : landing, 'my-bots': myBotsView, admin: () => parts[1] === 'bots' ? adminBotsView() : adminView };
+  const R = { '': landing, login: () => authView('login'), signup: () => authView('signup'), verify: verifyView, oauth: oauthView, dashboard: dashboardView, new: () => parts[1] === 'configure' ? configureView() : newView(), project: () => projectView(), billing: billingView, settings: settingsView, marketplace: () => parts[1] ? botDetailsView() : marketplaceView(), deploy: () => parts[1] === 'bot' ? botDeployView() : landing, 'my-bots': myBotsView, admin: () => parts[1] === 'bots' ? adminBotsView() : adminView() };
   (R[parts[0] || ''] || landing)();
 }
 addEventListener('hashchange', route);
